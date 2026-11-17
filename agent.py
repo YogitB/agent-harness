@@ -18,9 +18,14 @@ def write_file(path, content):
     with open(path, "w", encoding="utf-8") as f:
         f.write(content)
     return f"Wrote {path}"
+def run_command(command):
+    ok = input(f"  Agent wants to run: {command}\n  Allow? (y/n) ")
+    if ok.lower() != "y":
+        return "User denied the command."
+    r = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=60)
+    return (r.stdout + r.stderr)[:4000] or "(no output)"
 
-TOOLS = {"list_files": list_files, "read_file": read_file, "write_file": write_file}
-
+TOOLS = {"list_files": list_files, "read_file": read_file, "write_file": write_file, "run_command": run_command}
 # 2. Describe the tools so the AI knows they exist
 TOOL_SPECS = [
     {"type": "function", "function": {"name": "list_files", "description": "List files in a folder",
@@ -30,6 +35,8 @@ TOOL_SPECS = [
     {"type": "function", "function": {"name": "write_file", "description": "Create or overwrite a text file",
         "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}},
         "required": ["path", "content"]}}},
+    {"type": "function", "function": {"name": "run_command", "description": "Run a shell command on Windows and get its output",
+        "parameters": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]}}},
 ]
 
 messages = [{"role": "system", "content": "You are a helpful coding agent. Use tools when you need them."}]

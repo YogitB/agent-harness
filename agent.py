@@ -1,6 +1,8 @@
 import os, json, subprocess
 from dotenv import load_dotenv
 from openai import OpenAI
+import requests
+from bs4 import BeautifulSoup
 
 load_dotenv()
 client = OpenAI(api_key=os.getenv("GROQ_API_KEY"), base_url="https://api.groq.com/openai/v1")
@@ -13,7 +15,17 @@ def list_files(path="."):
 def read_file(path):
     with open(path, encoding="utf-8") as f:
         return f.read()[:4000]
-
+def fetch_url(url):
+    try:
+        r = requests.get(url, timeout=10, headers={"User-Agent": "agent-harness"})
+        r.raise_for_status()
+    except Exception as e:
+        return f"Error fetching {url}: {e}"
+    soup = BeautifulSoup(r.text, "html.parser")
+    for tag in soup(["script", "style", "nav", "footer"]):
+        tag.decompose()
+    text = " ".join(soup.get_text(" ").split())
+    return text[:4000]
 def write_file(path, content):
     with open(path, "w", encoding="utf-8") as f:
         f.write(content)
@@ -36,7 +48,7 @@ def edit_file(path, old, new):
     return f"Edited {path}"
 
 TOOLS = {"list_files": list_files, "read_file": read_file, "write_file": write_file,
-         "run_command": run_command, "edit_file": edit_file}
+         "run_command": run_command, "edit_file": edit_file, "fetch_url": fetch_url}
 
 # 2. Describe the tools so the AI knows they exist
 TOOL_SPECS = [
@@ -52,7 +64,11 @@ TOOL_SPECS = [
     {"type": "function", "function": {"name": "edit_file", "description": "Replace one exact piece of text in a file with new text",
         "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "old": {"type": "string"}, "new": {"type": "string"}},
         "required": ["path", "old", "new"]}}},
+    {"type": "function", "function": {"name": "fetch_url", "description": "Download a web page and return its readable text",
+        "parameters": {"type": "object", "properties": {"url": {"type": "string", "description": "Full URL starting with http"}},
+        "required": ["url"]}}},
 ]
+
 
 SYSTEM = {"role": "system", "content": f"""You are a coding agent on Windows.
 Working folder: {os.getcwd()}

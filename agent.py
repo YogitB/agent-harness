@@ -3,6 +3,8 @@ from dotenv import load_dotenv
 from openai import OpenAI
 import requests
 from bs4 import BeautifulSoup
+import time
+
 
 load_dotenv()
 client = OpenAI(api_key=os.getenv("GROQ_API_KEY"), base_url="https://api.groq.com/openai/v1")
@@ -80,6 +82,8 @@ Rules:
 - When the user mentions a website or URL, use fetch_url to read it instead of guessing.
 - Run Python files with: python filename.py"""}
 HISTORY_FILE = "history.json"
+MAX_MESSAGES = 40 #Number of how many recent messagse that the agent remembers
+
 
 def load_history():
     if os.path.exists(HISTORY_FILE):
@@ -92,7 +96,15 @@ def load_history():
 def save_history():
     with open(HISTORY_FILE, "w", encoding="utf-8") as f:
         json.dump(messages[1:], f, indent=2)   # skip the system prompt
-
+def trim_history():
+    global messages
+    if len(messages) - 1 <= MAX_MESSAGES:
+        return
+    recent = messages[-MAX_MESSAGES:]
+    # don't start on a tool result whose tool call got cut off
+    while recent and recent[0].get("role") == "tool":
+        recent.pop(0)
+    messages = [SYSTEM] + recent
 messages = load_history()
 
 # 3. The loop
@@ -100,24 +112,37 @@ while True:
     user = input("\nYou: ")
     if user.lower() in ("quit", "exit"):
         break
-    if user.lower() == "reset":               #lined up with the if above
+    if user.lower() == "reset":
         messages = [SYSTEM]
         save_history()
         print("(Memory wiped)")
         continue
     messages.append({"role": "user", "content": user})
+    trim_history()
 
     while True:
-        resp = client.chat.completions.create(model=MODEL, messages=messages, tools=TOOL_SPECS)
-        msg = resp.choices[0].message
-        messages.append(msg.model_dump(exclude_none=True))   # fix 3
-
-        if not msg.tool_calls:          
-            print("\nAgent:", msg.content)
-            save_history()              # fix 2: spaces
+        try:
+            resp = client.chat.completions.create(model=MODEL, messages=messages, tools=TOOL_SPECS)
+        except Exception as e:
+            if "429" in str(e):
+                print("  (rate limited, waiting 5s...)")
+                time.sleep(5)
+                continue
+            if "tool call validation failed" in str(e):
+                messages.append({"role": "user", "content": "That tool doesn't exist. Only use: " + ", ".join(TOOLS)})
+                continue
+            print("\nError:", e)
             break
 
-        for call in msg.tool_calls:     # run each tool it asked for
+        msg = resp.choices[0].message
+        messages.append(msg.model_dump(exclude_none=True))
+
+        if not msg.tool_calls:
+            print("\nAgent:", msg.content)
+            save_history()
+            break
+
+        for call in msg.tool_calls:
             args = json.loads(call.function.arguments or "{}")
             print(f"  [tool] {call.function.name}({args})")
             try:

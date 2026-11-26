@@ -77,6 +77,7 @@ Rules:
 - Use edit_file for small changes and write_file only for new files.
 - After writing code, run it to check that it works, and fix any errors.
 - Keep answers short.
+- When the user mentions a website or URL, use fetch_url to read it instead of guessing.
 - Run Python files with: python filename.py"""}
 HISTORY_FILE = "history.json"
 
